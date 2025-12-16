@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis Avanzado de Modelos - PyScript</title>
+
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css" />
+    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <py-config>
+        packages = ["numpy"]
+    </py-config>
+
+    <style>
+        .matrix-input-container {
+            display: grid;
+            gap: 5px;
+            margin-top: 15px;
+        }
+        .matrix-input-container input {
+            text-align: center;
+        }
+        /* Ocultar elementos específicos al inicio */
+        #matrix-setup-container, #viterbi-inputs {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container my-5">
+        <h1 class="mb-4 text-center text-primary">⚙️ Calculadora Avanzada de Modelos (PyScript)</h1>
+        <p class="text-center text-muted">Selecciona el modelo, define el tamaño de las matrices y calcula.</p>
+        
+        <div class="card shadow-sm">
+            <div class="card-body">
+                
+                <div class="mb-4">
+                    <label for="model_select" class="form-label h5">1. Seleccionar Modelo de Cálculo:</label>
+                    <select id="model_select" class="form-select form-select-lg" onchange="toggleInputs()">
+                        <option value="" selected disabled>--- Selecciona un Modelo ---</option>
+                        <option value="markov">Cadenas de Markov (Matrices de Transición)</option>
+                        <option value="viterbi">Viterbi (Modelo Oculto de Markov - HMM)</option>
+                    </select>
+                </div>
+                
+                <div id="matrix-setup-container">
+                    <hr>
+                    <div class="row g-3 align-items-end mb-4">
+                        <div class="col-md-6">
+                            <label for="matrix_size" class="form-label h5">2. Tamaño de la Matriz de Transición (N x N):</label>
+                            <input type="number" id="matrix_size" class="form-control" value="3" min="2" max="5" oninput="generateMatrixInputs(this.value)">
+                        </div>
+                        <div class="col-md-6">
+                            <button class="btn btn-warning w-100" onclick="generateMatrixInputs(document.getElementById('matrix_size').value)">Generar Campos de Matriz</button>
+                        </div>
+                    </div>
+                    
+                    <h5 class="mt-3">Matriz de Transición (A)</h5>
+                    <div id="matrix_a_inputs" class="matrix-input-container">
+                        </div>
+
+                    <div id="viterbi-inputs">
+                        <hr>
+                        <h5 class="mt-4">Inputs Adicionales (Modelo Viterbi / HMM)</h5>
+                        
+                        <div class="mb-3">
+                            <label for="observation_size" class="form-label">Tamaño de la Matriz de Emisión (N x M):</label>
+                            <input type="number" id="observation_size" class="form-control" value="2" min="1" max="5" oninput="generateEmissionMatrixInputs()">
+                        </div>
+                        
+                        <h5 class="mt-3">Matriz de Emisión (B)</h5>
+                        <div id="matrix_b_inputs" class="matrix-input-container"></div>
+
+                        <h5 class="mt-3">Probabilidades Iniciales ($\pi$)</h5>
+                        <div id="vector_pi_inputs" class="matrix-input-container"></div>
+                        
+                        <h5 class="mt-3">Secuencia de Observaciones (Ej: 0, 1, 0, 0)</h5>
+                        <input type="text" id="observations" class="form-control" placeholder="Ingrese una secuencia de índices de observación separados por coma (ej: 0,1,0)" value="0,1,0">
+                    </div>
+
+                    <hr>
+                    <button id="calculate_btn" class="btn btn-success btn-lg w-100 mt-4" py-onClick="perform_calculation">
+                        3. Ejecutar Cálculo
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-4 shadow-sm">
+            <div class="card-header bg-dark text-white h4">
+                Resultados
+            </div>
+            <div class="card-body">
+                <pre id="output_result" class="p-3 bg-light border rounded">Seleccione un modelo y configure las matrices. Presione 'Ejecutar Cálculo'...</pre>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Función JS para mostrar/ocultar los campos según el modelo seleccionado
+        function toggleInputs() {
+            const model = document.getElementById('model_select').value;
+            const setupContainer = document.getElementById('matrix-setup-container');
+            const viterbiInputs = document.getElementById('viterbi-inputs');
+
+            if (model) {
+                setupContainer.style.display = 'block';
+                // Genera la matriz de transición inicial (3x3)
+                generateMatrixInputs(document.getElementById('matrix_size').value);
+            } else {
+                setupContainer.style.display = 'none';
+            }
+
+            // Muestra/Oculta los campos específicos de Viterbi
+            if (model === 'viterbi') {
+                viterbiInputs.style.display = 'block';
+                generateEmissionMatrixInputs(); // Genera matriz de emisión y vector Pi
+            } else {
+                viterbiInputs.style.display = 'none';
+            }
+        }
+
+        // Función JS para generar dinámicamente los campos de entrada de la Matriz A
+        function generateMatrixInputs(N) {
+            N = parseInt(N);
+            if (isNaN(N) || N < 2) return;
+
+            const A_container = document.getElementById('matrix_a_inputs');
+            A_container.innerHTML = '';
+            A_container.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+            
+            // Valores predeterminados (para que sumen aprox. 1.0)
+            const diagonal_val = 0.7;
+            const off_diagonal_val = ((1 - diagonal_val) / (N - 1)).toFixed(3);
+
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j < N; j++) {
+                    const default_val = (i === j) ? diagonal_val : off_diagonal_val;
+                    A_container.innerHTML += `<input type="number" step="0.01" min="0" max="1" id="A_${i}_${j}" class="form-control form-control-sm" placeholder="A[${i}][${j}]" value="${default_val}">`;
+                }
+            }
+            
+            // Si es Viterbi, actualiza la matriz de Emisión y Pi con el nuevo N
+            if (document.getElementById('model_select').value === 'viterbi') {
+                 generateEmissionMatrixInputs();
+            }
+        }
+
+        // Función JS para generar dinámicamente Matriz de Emisión (B) y Vector Inicial (Pi)
+        function generateEmissionMatrixInputs() {
+            const N = parseInt(document.getElementById('matrix_size').value); // Estados (filas)
+            const M = parseInt(document.getElementById('observation_size').value); // Observaciones (columnas)
+            if (isNaN(N) || N < 1 || isNaN(M) || M < 1) return;
+
+            // Generar Matriz B (Emisión)
+            const B_container = document.getElementById('matrix_b_inputs');
+            B_container.innerHTML = '';
+            B_container.style.gridTemplateColumns = `repeat(${M}, 1fr)`;
+            
+            const emission_default_val = (1/M).toFixed(3);
+
+            for (let i = 0; i < N; i++) { // Filas = Estados (N)
+                for (let j = 0; j < M; j++) { // Columnas = Observaciones (M)
+                    B_container.innerHTML += `<input type="number" step="0.01" min="0" max="1" id="B_${i}_${j}" class="form-control form-control-sm" placeholder="B[${i}][${j}]" value="${emission_default_val}">`;
+                }
+            }
+            
+            // Generar Vector Pi (Inicial)
+            const Pi_container = document.getElementById('vector_pi_inputs');
+            Pi_container.innerHTML = '';
+            Pi_container.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+            
+            const pi_default_val = (1/N).toFixed(3);
+
+            for (let i = 0; i < N; i++) {
+                Pi_container.innerHTML += `<input type="number" step="0.01" min="0" max="1" id="Pi_${i}" class="form-control form-control-sm" placeholder="π[${i}]" value="${pi_default_val}">`;
+            }
+        }
+
+    </script>
+    
+    <py-script>
+        import numpy as np
+        from js import Element, document
+        import math
+
+        # --- Funciones de Utilidad ---
+
+        # CORRECCIÓN: Manejo robusto de errores de lectura y valores vacíos
+        def read_matrix_from_html(prefix, N_rows, N_cols):
+            try:
+                matrix = np.zeros((N_rows, N_cols))
+                for i in range(N_rows):
+                    for j in range(N_cols):
+                        # Usamos '0.0' si el input está vacío para evitar ValueError y asegurar que float() funcione
+                        value = document.getElementById(f"{prefix}_{i}_{j}").value or '0.0'
+                        matrix[i, j] = float(value)
+                return matrix
+            except Exception as e:
+                # Devolver el error como string para que la función principal lo muestre
+                return f"ERROR DE LECTURA: No se pudo leer el valor de {prefix}[{i}][{j}]. Asegúrate de que todos los campos de la matriz estén llenos. Error: {e}"
+
+        # CORRECCIÓN: Manejo robusto de errores de lectura y valores vacíos para vectores
+        def read_vector_from_html(prefix, N):
+            try:
+                vector = np.zeros(N)
+                for i in range(N):
+                    value = document.getElementById(f"{prefix}_{i}").value or '0.0'
+                    vector[i] = float(value)
+                return vector
+            except Exception as e:
+                return f"ERROR DE LECTURA: No se pudo leer el valor de {prefix}[{i}]. Asegúrate de que todos los campos del vector estén llenos. Error: {e}"
+
+        # --- Lógica de Modelos ---
+
+        def calculate_markov(A, N):
+            
+            # Validación simple (Ya se hace en perform_calculation, pero se mantiene para aislamiento)
+            
+            # 2. Encontrar la Distribución Estacionaria (si existe)
+            M = A.T - np.eye(N)
+            M[-1, :] = 1.0 
+            b = np.zeros(N)
+            b[-1] = 1.0 # Suma debe ser 1
+
+            try:
+                pi_stationary = np.linalg.solve(M, b)
+                
+                output = f"--- CÁLCULO DE CADENA DE MARKOV ---\n"
+                output += f"Matriz de Transición (A):\n{A}\n\n"
+                output += f"Distribución Estacionaria (π): \n{np.round(pi_stationary, 4)}\n"
+                output += "Esta distribución representa la probabilidad a largo plazo de estar en cada estado."
+                return output
+            except np.linalg.LinAlgError:
+                return "ERROR: La Matriz no es regular, no se pudo calcular la distribución estacionaria.\nEsto puede ocurrir si la cadena es periódica o reducible."
+
+        def calculate_viterbi(A, B, Pi, Observations):
+            
+            # Validaciones iniciales (tamaños y sumas) ya se realizan en perform_calculation.
+
+            N = A.shape[0]  # Número de estados
+            T = len(Observations) # Longitud de la secuencia
+
+            # Inicialización (log probabilities para evitar underflow)
+            delta = np.zeros((T, N))
+            psi = np.zeros((T, N), dtype=int)
+            
+            # Paso de Inicialización (t=0)
+            for i in range(N):
+                # Manejo de log(0)
+                log_pi = math.log(Pi[i]) if Pi[i] > 0 else -np.inf
+                log_b = math.log(B[i, Observations[0]]) if B[i, Observations[0]] > 0 else -np.inf
+                delta[0, i] = log_pi + log_b
+
+            # Paso de Recurrencia (t=1 a T-1)
+            for t in range(1, T):
+                o_t = Observations[t]
+                for j in range(N):
+                    log_max_prob = -np.inf
+                    max_state = 0
+                    
+                    for i in range(N):
+                        # Manejo de log(0) para A
+                        log_a = math.log(A[i, j]) if A[i, j] > 0 else -np.inf
+                        prob = delta[t-1, i] + log_a
+                        
+                        if prob > log_max_prob:
+                            log_max_prob = prob
+                            max_state = i
+                            
+                    # Manejo de log(0) para B
+                    log_b = math.log(B[j, o_t]) if B[j, o_t] > 0 else -np.inf
+                    delta[t, j] = log_max_prob + log_b
+                    psi[t, j] = max_state
+
+            # Paso de Terminación
+            log_P_star = np.max(delta[T-1, :])
+            Q_star = np.zeros(T, dtype=int)
+            Q_star[T-1] = np.argmax(delta[T-1, :])
+
+            # Paso de Retroceso
+            for t in range(T-2, -1, -1):
+                Q_star[t] = psi[t+1, Q_star[t+1]]
+
+            output = f"--- CÁLCULO DE VITERBI (HMM) ---\n"
+            output += f"Secuencia de Observaciones: {Observations}\n\n"
+            output += f"Matriz de Transición (A):\n{A}\n\n"
+            output += f"Matriz de Emisión (B):\n{B}\n\n"
+            output += f"Probabilidades Iniciales (π):\n{Pi}\n\n"
+            output += f"Secuencia de Estados Ocultos Más Probable (Q*):\n{Q_star}\n"
+            output += f"Probabilidad Logarítmica (Máxima) de la Secuencia Q*: {log_P_star:.4f}"
+            
+            return output
+
+        # FUNCIÓN PRINCIPAL DE CÁLCULO (vinculada al botón)
+        def perform_calculation(event):
+            output_element = Element('output_result')
+            # CORRECCIÓN: Dar feedback inmediato
+            output_element.write("Iniciando cálculo...", append=False) 
+
+            model = Element('model_select').value
+            
+            if not model:
+                output_element.write("ERROR: Por favor, seleccione un modelo de cálculo.", append=False)
+                return
+
+            try:
+                N = int(Element('matrix_size').value) # Número de Estados
+            except ValueError:
+                output_element.write("ERROR: El tamaño de la Matriz (N) no es un número válido.", append=False)
+                return
+
+            # 1. Leer Matriz de Transición (A)
+            A = read_matrix_from_html('A', N, N)
+            if isinstance(A, str): # Si la función de lectura devolvió un error (string)
+                output_element.write(A, append=False)
+                return
+
+            # 2. Ejecutar la lógica específica del modelo
+            if model == 'markov':
+                # Validación crucial: Suma de filas debe ser 1.0 (para matrices estocásticas)
+                row_sums = A.sum(axis=1)
+                # np.allclose es mejor que == para floats
+                if not np.allclose(row_sums, 1.0, atol=1e-3): 
+                     output_element.write(
+                        f"ERROR: La suma de las filas de la Matriz de Transición (A) debe ser 1.0. Sumas encontradas (deberían ser 1.0): {np.round(row_sums, 4)}", 
+                        append=False
+                     )
+                     return
+                     
+                result = calculate_markov(A, N)
+                output_element.write(result, append=False)
+            
+            elif model == 'viterbi':
+                try:
+                    M = int(Element('observation_size').value) # Número de Observaciones
+                except ValueError:
+                    output_element.write("ERROR: El tamaño de la Matriz de Emisión (M) no es un número válido.", append=False)
+                    return
+
+                # 2.1 Leer Matriz de Emisión (B)
+                B = read_matrix_from_html('B', N, M)
+                if isinstance(B, str):
+                    output_element.write(B, append=False)
+                    return
+                
+                # 2.2 Leer Vector Inicial (Pi)
+                Pi = read_vector_from_html('Pi', N)
+                if isinstance(Pi, str):
+                    output_element.write(Pi, append=False)
+                    return
+                
+                # 2.3 Leer Secuencia de Observaciones
+                obs_str = Element('observations').value
+                try:
+                    # Convertir la cadena de observaciones a una lista de enteros
+                    Observations = [int(x.strip()) for x in obs_str.split(',') if x.strip()]
+                    if not Observations:
+                         output_element.write("ERROR: La secuencia de observaciones está vacía.", append=False)
+                         return
+                except ValueError:
+                    output_element.write("ERROR: La secuencia de observaciones debe ser una lista de números enteros separados por comas (ej: 0,1,0,2).", append=False)
+                    return
+
+                # Validación de A (Transición)
+                if not np.allclose(A.sum(axis=1), 1.0, atol=1e-3):
+                    output_element.write("ERROR: La suma de las filas de la Matriz de Transición (A) debe ser 1.0.", append=False)
+                    return
+                    
+                # Validación de B (Emisión)
+                if not np.allclose(B.sum(axis=1), 1.0, atol=1e-3):
+                    output_element.write("ERROR: La suma de las filas de la Matriz de Emisión (B) debe ser 1.0.", append=False)
+                    return
+                
+                # Validación de Pi (Inicial)
+                if not np.allclose(Pi.sum(), 1.0, atol=1e-3):
+                    output_element.write("ERROR: La suma del Vector Inicial (π) debe ser 1.0.", append=False)
+                    return
+
+                result = calculate_viterbi(A, B, Pi, Observations)
+                output_element.write(result, append=False)
+                
+            else:
+                 output_element.write("Modelo no implementado o no reconocido.", append=False)
+
+    </py-script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
