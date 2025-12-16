@@ -3,16 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Análisis Avanzado de Modelos - PyScript</title>
-
-    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css" />
-    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+    <title>Análisis Avanzado de Modelos - HTML/JavaScript</title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-
-    <py-config>
-        packages = ["numpy"]
-    </py-config>
+    
+    <script src="https://cdn.jsdelivr.net/npm/mathjs@12.4.2/lib/browser/math.js"></script>
 
     <style>
         .matrix-input-container {
@@ -23,7 +18,6 @@
         .matrix-input-container input {
             text-align: center;
         }
-        /* Ocultar elementos específicos al inicio */
         #matrix-setup-container, #viterbi-inputs {
             display: none;
         }
@@ -32,8 +26,8 @@
 <body>
 
     <div class="container my-5">
-        <h1 class="mb-4 text-center text-primary">⚙️ Calculadora Avanzada de Modelos (PyScript)</h1>
-        <p class="text-center text-muted">Selecciona el modelo, define el tamaño de las matrices y calcula.</p>
+        <h1 class="mb-4 text-center text-primary">⚙️ Calculadora Avanzada de Modelos (JavaScript)</h1>
+        <p class="text-center text-muted">Funcionamiento garantizado al abrir con doble clic.</p>
         
         <div class="card shadow-sm">
             <div class="card-body">
@@ -60,8 +54,7 @@
                     </div>
                     
                     <h5 class="mt-3">Matriz de Transición (A)</h5>
-                    <div id="matrix_a_inputs" class="matrix-input-container">
-                        </div>
+                    <div id="matrix_a_inputs" class="matrix-input-container"></div>
 
                     <div id="viterbi-inputs">
                         <hr>
@@ -78,12 +71,12 @@
                         <h5 class="mt-3">Probabilidades Iniciales ($\pi$)</h5>
                         <div id="vector_pi_inputs" class="matrix-input-container"></div>
                         
-                        <h5 class="mt-3">Secuencia de Observaciones (Ej: 0, 1, 0, 0)</h5>
+                        <h5 class="mt-3">Secuencia de Observaciones (Ej: 0, 1, 0)</h5>
                         <input type="text" id="observations" class="form-control" placeholder="Ingrese una secuencia de índices de observación separados por coma (ej: 0,1,0)" value="0,1,0">
                     </div>
 
                     <hr>
-                    <button id="calculate_btn" class="btn btn-success btn-lg w-100 mt-4" py-onClick="perform_calculation">
+                    <button id="calculate_btn" class="btn btn-success btn-lg w-100 mt-4" onclick="performCalculation()">
                         3. Ejecutar Cálculo
                     </button>
                 </div>
@@ -95,14 +88,18 @@
                 Resultados
             </div>
             <div class="card-body">
-                <pre id="output_result" class="p-3 bg-light border rounded">Seleccione un modelo y configure las matrices. Presione 'Ejecutar Cálculo'...</pre>
+                <pre id="output_result" class="p-3 bg-light border rounded">Seleccione un modelo y presione 'Ejecutar Cálculo'...</pre>
             </div>
         </div>
 
     </div>
 
     <script>
-        // Función JS para mostrar/ocultar los campos según el modelo seleccionado
+        // Alias para la librería mathjs
+        const m = math;
+        
+        // --- Funciones de Interfaz (Las mismas que antes) ---
+
         function toggleInputs() {
             const model = document.getElementById('model_select').value;
             const setupContainer = document.getElementById('matrix-setup-container');
@@ -110,31 +107,26 @@
 
             if (model) {
                 setupContainer.style.display = 'block';
-                // Genera la matriz de transición inicial (3x3)
                 generateMatrixInputs(document.getElementById('matrix_size').value);
             } else {
                 setupContainer.style.display = 'none';
             }
 
-            // Muestra/Oculta los campos específicos de Viterbi
             if (model === 'viterbi') {
                 viterbiInputs.style.display = 'block';
-                generateEmissionMatrixInputs(); // Genera matriz de emisión y vector Pi
+                generateEmissionMatrixInputs();
             } else {
                 viterbiInputs.style.display = 'none';
             }
         }
 
-        // Función JS para generar dinámicamente los campos de entrada de la Matriz A
         function generateMatrixInputs(N) {
             N = parseInt(N);
             if (isNaN(N) || N < 2) return;
-
             const A_container = document.getElementById('matrix_a_inputs');
             A_container.innerHTML = '';
             A_container.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
             
-            // Valores predeterminados (para que sumen aprox. 1.0)
             const diagonal_val = 0.7;
             const off_diagonal_val = ((1 - diagonal_val) / (N - 1)).toFixed(3);
 
@@ -144,251 +136,275 @@
                     A_container.innerHTML += `<input type="number" step="0.01" min="0" max="1" id="A_${i}_${j}" class="form-control form-control-sm" placeholder="A[${i}][${j}]" value="${default_val}">`;
                 }
             }
-            
-            // Si es Viterbi, actualiza la matriz de Emisión y Pi con el nuevo N
             if (document.getElementById('model_select').value === 'viterbi') {
                  generateEmissionMatrixInputs();
             }
         }
 
-        // Función JS para generar dinámicamente Matriz de Emisión (B) y Vector Inicial (Pi)
         function generateEmissionMatrixInputs() {
-            const N = parseInt(document.getElementById('matrix_size').value); // Estados (filas)
-            const M = parseInt(document.getElementById('observation_size').value); // Observaciones (columnas)
+            const N = parseInt(document.getElementById('matrix_size').value);
+            const M = parseInt(document.getElementById('observation_size').value);
             if (isNaN(N) || N < 1 || isNaN(M) || M < 1) return;
 
-            // Generar Matriz B (Emisión)
+            // Matriz B (Emisión)
             const B_container = document.getElementById('matrix_b_inputs');
             B_container.innerHTML = '';
             B_container.style.gridTemplateColumns = `repeat(${M}, 1fr)`;
-            
             const emission_default_val = (1/M).toFixed(3);
-
-            for (let i = 0; i < N; i++) { // Filas = Estados (N)
-                for (let j = 0; j < M; j++) { // Columnas = Observaciones (M)
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j < M; j++) {
                     B_container.innerHTML += `<input type="number" step="0.01" min="0" max="1" id="B_${i}_${j}" class="form-control form-control-sm" placeholder="B[${i}][${j}]" value="${emission_default_val}">`;
                 }
             }
             
-            // Generar Vector Pi (Inicial)
+            // Vector Pi (Inicial)
             const Pi_container = document.getElementById('vector_pi_inputs');
             Pi_container.innerHTML = '';
             Pi_container.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
-            
             const pi_default_val = (1/N).toFixed(3);
-
             for (let i = 0; i < N; i++) {
                 Pi_container.innerHTML += `<input type="number" step="0.01" min="0" max="1" id="Pi_${i}" class="form-control form-control-sm" placeholder="π[${i}]" value="${pi_default_val}">`;
             }
         }
+        
+        // --- Funciones de Lectura de Datos ---
+        
+        function readMatrixFromHtml(prefix, N_rows, N_cols) {
+            const matrix = [];
+            for (let i = 0; i < N_rows; i++) {
+                const row = [];
+                for (let j = 0; j < N_cols; j++) {
+                    const value = document.getElementById(`${prefix}_${i}_${j}`).value;
+                    // Usa parseFloat() o 0.0 si está vacío
+                    row.push(parseFloat(value) || 0.0); 
+                }
+                matrix.push(row);
+            }
+            // Retorna como matriz de math.js
+            return m.matrix(matrix); 
+        }
+
+        function readVectorFromHtml(prefix, N) {
+            const vector = [];
+            for (let i = 0; i < N; i++) {
+                const value = document.getElementById(`${prefix}_${i}`).value;
+                vector.push(parseFloat(value) || 0.0);
+            }
+            return m.matrix(vector);
+        }
+        
+        // --- Lógica de Modelos (Traducción de Python a JavaScript/math.js) ---
+
+        // Función auxiliar para verificar si las sumas de las filas son 1.0
+        function validateStochasticMatrix(matrix, atol = 0.001) {
+            const rows = matrix.toArray();
+            for (let i = 0; i < rows.length; i++) {
+                const sum = rows[i].reduce((a, b) => a + b, 0);
+                if (Math.abs(sum - 1.0) > atol) {
+                    return `La suma de la fila ${i} es ${sum.toFixed(4)}, debería ser 1.0.`;
+                }
+            }
+            return null;
+        }
+        
+        // Lógica de Cadenas de Markov
+        function calculateMarkov(A, N) {
+            const validationError = validateStochasticMatrix(A);
+            if (validationError) {
+                return `ERROR de Validación (Matriz A): ${validationError}`;
+            }
+
+            // Encontrar Distribución Estacionaria (pi * A = pi, sum(pi) = 1)
+            // Esto se resuelve con un sistema lineal: (A^T - I) * pi = 0
+            // Math.js maneja bien estas operaciones
+            
+            try {
+                // 1. Crear A^T - I
+                const I = m.identity(N);
+                const At = m.transpose(A);
+                const M = m.subtract(At, I);
+                
+                // 2. Reemplazar la última fila por [1, 1, ..., 1] para la condición sum(pi) = 1
+                const M_array = M.toArray();
+                M_array[N - 1] = Array(N).fill(1.0);
+                const M_solved = m.matrix(M_array);
+                
+                // 3. Crear el vector b = [0, 0, ..., 1]
+                const b = Array(N).fill(0.0);
+                b[N - 1] = 1.0;
+
+                // 4. Resolver M * pi = b para pi
+                const pi_stationary_matrix = m.lusolve(M_solved, b);
+                const pi_stationary = m.squeeze(pi_stationary_matrix).toArray(); // Convierte a vector
+
+                const output = `--- CÁLCULO DE CADENA DE MARKOV ---\n`
+                    + `Matriz de Transición (A):\n${m.format(A, {precision: 4})}\n\n`
+                    + `Distribución Estacionaria (π):\n${m.format(pi_stationary, {precision: 4})}\n`
+                    + `Esta distribución representa la probabilidad a largo plazo de estar en cada estado.`;
+                return output;
+
+            } catch (e) {
+                return `ERROR de Cálculo: No se pudo encontrar la distribución estacionaria. La matriz podría ser periódica o no regular. Detalle: ${e.message}`;
+            }
+        }
+
+        // Lógica del Algoritmo de Viterbi
+        function calculateViterbi(A, B, Pi, Observations) {
+            // Validación de sumas
+            const validationA = validateStochasticMatrix(A);
+            if (validationA) return `ERROR de Validación (Matriz A): ${validationA}`;
+            const validationB = validateStochasticMatrix(B);
+            if (validationB) return `ERROR de Validación (Matriz B): ${validationB}`;
+            
+            const sumPi = Pi.toArray().reduce((a, b) => a + b, 0);
+            if (Math.abs(sumPi - 1.0) > 0.001) {
+                return `ERROR de Validación (Vector Pi): La suma de las probabilidades iniciales es ${sumPi.toFixed(4)}, debería ser 1.0.`;
+            }
+
+            const N = A.size()[0]; // Número de estados
+            const T = Observations.length; // Longitud de la secuencia
+
+            if (T === 0) {
+                return "ERROR: La secuencia de observaciones está vacía.";
+            }
+
+            // Inicialización (usando logaritmos para evitar underflow)
+            const delta = m.zeros(T, N);
+            const psi = m.zeros(T, N);
+            
+            const A_arr = A.toArray();
+            const B_arr = B.toArray();
+            const Pi_arr = Pi.toArray();
+            const delta_arr = delta.toArray();
+            const psi_arr = psi.toArray();
+
+            // Paso de Inicialización (t=0)
+            for (let i = 0; i < N; i++) {
+                const log_pi = Pi_arr[i] > 0 ? Math.log(Pi_arr[i]) : -Infinity;
+                const log_b = B_arr[i][Observations[0]] > 0 ? Math.log(B_arr[i][Observations[0]]) : -Infinity;
+                delta_arr[0][i] = log_pi + log_b;
+            }
+
+            // Paso de Recurrencia (t=1 a T-1)
+            for (let t = 1; t < T; t++) {
+                const o_t = Observations[t];
+                for (let j = 0; j < N; j++) {
+                    let log_max_prob = -Infinity;
+                    let max_state = 0;
+                    
+                    for (let i = 0; i < N; i++) {
+                        const log_a = A_arr[i][j] > 0 ? Math.log(A_arr[i][j]) : -Infinity;
+                        const prob = delta_arr[t-1][i] + log_a;
+                        
+                        if (prob > log_max_prob) {
+                            log_max_prob = prob;
+                            max_state = i;
+                        }
+                    }
+                    
+                    const log_b = B_arr[j][o_t] > 0 ? Math.log(B_arr[j][o_t]) : -Infinity;
+                    delta_arr[t][j] = log_max_prob + log_b;
+                    psi_arr[t][j] = max_state;
+                }
+            }
+            
+            // Paso de Terminación
+            let log_P_star = -Infinity;
+            let Q_T_minus_1 = 0;
+            for (let i = 0; i < N; i++) {
+                if (delta_arr[T-1][i] > log_P_star) {
+                    log_P_star = delta_arr[T-1][i];
+                    Q_T_minus_1 = i;
+                }
+            }
+            
+            const Q_star = new Array(T);
+            Q_star[T-1] = Q_T_minus_1;
+
+            // Paso de Retroceso
+            for (let t = T - 2; t >= 0; t--) {
+                Q_star[t] = psi_arr[t + 1][Q_star[t + 1]];
+            }
+
+            const output = `--- CÁLCULO DE VITERBI (HMM) ---\n`
+                + `Secuencia de Observaciones: [${Observations.join(', ')}]\n\n`
+                + `Matriz de Transición (A):\n${m.format(A, {precision: 4})}\n\n`
+                + `Matriz de Emisión (B):\n${m.format(B, {precision: 4})}\n\n`
+                + `Probabilidades Iniciales (π):\n${m.format(Pi, {precision: 4})}\n\n`
+                + `Secuencia de Estados Ocultos Más Probable (Q*):\n[${Q_star.join(', ')}]\n`
+                + `Probabilidad Logarítmica (Máxima) de la Secuencia Q*: ${log_P_star.toFixed(4)}`;
+            
+            return output;
+        }
+
+
+        // --- FUNCIÓN PRINCIPAL DE CÁLCULO (Vinculada al botón) ---
+        function performCalculation() {
+            const outputElement = document.getElementById('output_result');
+            outputElement.textContent = "Iniciando cálculo...";
+
+            const model = document.getElementById('model_select').value;
+            
+            if (!model) {
+                outputElement.textContent = "ERROR: Por favor, seleccione un modelo de cálculo.";
+                return;
+            }
+
+            try {
+                const N = parseInt(document.getElementById('matrix_size').value);
+                
+                // 1. Leer Matriz de Transición (A)
+                const A = readMatrixFromHtml('A', N, N);
+
+                let result;
+                
+                if (model === 'markov') {
+                    result = calculateMarkov(A, N);
+                } 
+                
+                else if (model === 'viterbi') {
+                    const M = parseInt(document.getElementById('observation_size').value);
+                    
+                    // 2. Leer Matriz de Emisión (B)
+                    const B = readMatrixFromHtml('B', N, M);
+                    
+                    // 3. Leer Vector Inicial (Pi)
+                    const Pi = readVectorFromHtml('Pi', N);
+                    
+                    // 4. Leer Secuencia de Observaciones
+                    const obsStr = document.getElementById('observations').value;
+                    const Observations = obsStr.split(',')
+                                            .map(s => s.trim())
+                                            .filter(s => s.length > 0)
+                                            .map(s => parseInt(s));
+
+                    if (Observations.some(isNaN)) {
+                        outputElement.textContent = "ERROR: La secuencia de observaciones contiene valores no numéricos. Use solo enteros separados por comas (ej: 0,1,0).";
+                        return;
+                    }
+
+                    result = calculateViterbi(A, B, Pi, Observations);
+                } 
+                
+                else {
+                     result = "Modelo no implementado o no reconocido.";
+                }
+
+                outputElement.textContent = result;
+
+            } catch (e) {
+                console.error("Error fatal en el cálculo:", e);
+                outputElement.textContent = `ERROR FATAL: Ocurrió un error inesperado. Revise que haya generado los campos de la matriz e ingresado todos los datos. Detalle del error: ${e.message}`;
+            }
+        }
+        
+        // Inicializar la interfaz (opcional, pero útil)
+        document.addEventListener('DOMContentLoaded', () => {
+             // Simular la generación inicial de campos para el estado por defecto (Markov)
+             toggleInputs();
+        });
 
     </script>
-    
-    <py-script>
-        import numpy as np
-        from js import Element, document
-        import math
-
-        # --- Funciones de Utilidad ---
-
-        # CORRECCIÓN: Manejo robusto de errores de lectura y valores vacíos
-        def read_matrix_from_html(prefix, N_rows, N_cols):
-            try:
-                matrix = np.zeros((N_rows, N_cols))
-                for i in range(N_rows):
-                    for j in range(N_cols):
-                        # Usamos '0.0' si el input está vacío para evitar ValueError y asegurar que float() funcione
-                        value = document.getElementById(f"{prefix}_{i}_{j}").value or '0.0'
-                        matrix[i, j] = float(value)
-                return matrix
-            except Exception as e:
-                # Devolver el error como string para que la función principal lo muestre
-                return f"ERROR DE LECTURA: No se pudo leer el valor de {prefix}[{i}][{j}]. Asegúrate de que todos los campos de la matriz estén llenos. Error: {e}"
-
-        # CORRECCIÓN: Manejo robusto de errores de lectura y valores vacíos para vectores
-        def read_vector_from_html(prefix, N):
-            try:
-                vector = np.zeros(N)
-                for i in range(N):
-                    value = document.getElementById(f"{prefix}_{i}").value or '0.0'
-                    vector[i] = float(value)
-                return vector
-            except Exception as e:
-                return f"ERROR DE LECTURA: No se pudo leer el valor de {prefix}[{i}]. Asegúrate de que todos los campos del vector estén llenos. Error: {e}"
-
-        # --- Lógica de Modelos ---
-
-        def calculate_markov(A, N):
-            
-            # Validación simple (Ya se hace en perform_calculation, pero se mantiene para aislamiento)
-            
-            # 2. Encontrar la Distribución Estacionaria (si existe)
-            M = A.T - np.eye(N)
-            M[-1, :] = 1.0 
-            b = np.zeros(N)
-            b[-1] = 1.0 # Suma debe ser 1
-
-            try:
-                pi_stationary = np.linalg.solve(M, b)
-                
-                output = f"--- CÁLCULO DE CADENA DE MARKOV ---\n"
-                output += f"Matriz de Transición (A):\n{A}\n\n"
-                output += f"Distribución Estacionaria (π): \n{np.round(pi_stationary, 4)}\n"
-                output += "Esta distribución representa la probabilidad a largo plazo de estar en cada estado."
-                return output
-            except np.linalg.LinAlgError:
-                return "ERROR: La Matriz no es regular, no se pudo calcular la distribución estacionaria.\nEsto puede ocurrir si la cadena es periódica o reducible."
-
-        def calculate_viterbi(A, B, Pi, Observations):
-            
-            # Validaciones iniciales (tamaños y sumas) ya se realizan en perform_calculation.
-
-            N = A.shape[0]  # Número de estados
-            T = len(Observations) # Longitud de la secuencia
-
-            # Inicialización (log probabilities para evitar underflow)
-            delta = np.zeros((T, N))
-            psi = np.zeros((T, N), dtype=int)
-            
-            # Paso de Inicialización (t=0)
-            for i in range(N):
-                # Manejo de log(0)
-                log_pi = math.log(Pi[i]) if Pi[i] > 0 else -np.inf
-                log_b = math.log(B[i, Observations[0]]) if B[i, Observations[0]] > 0 else -np.inf
-                delta[0, i] = log_pi + log_b
-
-            # Paso de Recurrencia (t=1 a T-1)
-            for t in range(1, T):
-                o_t = Observations[t]
-                for j in range(N):
-                    log_max_prob = -np.inf
-                    max_state = 0
-                    
-                    for i in range(N):
-                        # Manejo de log(0) para A
-                        log_a = math.log(A[i, j]) if A[i, j] > 0 else -np.inf
-                        prob = delta[t-1, i] + log_a
-                        
-                        if prob > log_max_prob:
-                            log_max_prob = prob
-                            max_state = i
-                            
-                    # Manejo de log(0) para B
-                    log_b = math.log(B[j, o_t]) if B[j, o_t] > 0 else -np.inf
-                    delta[t, j] = log_max_prob + log_b
-                    psi[t, j] = max_state
-
-            # Paso de Terminación
-            log_P_star = np.max(delta[T-1, :])
-            Q_star = np.zeros(T, dtype=int)
-            Q_star[T-1] = np.argmax(delta[T-1, :])
-
-            # Paso de Retroceso
-            for t in range(T-2, -1, -1):
-                Q_star[t] = psi[t+1, Q_star[t+1]]
-
-            output = f"--- CÁLCULO DE VITERBI (HMM) ---\n"
-            output += f"Secuencia de Observaciones: {Observations}\n\n"
-            output += f"Matriz de Transición (A):\n{A}\n\n"
-            output += f"Matriz de Emisión (B):\n{B}\n\n"
-            output += f"Probabilidades Iniciales (π):\n{Pi}\n\n"
-            output += f"Secuencia de Estados Ocultos Más Probable (Q*):\n{Q_star}\n"
-            output += f"Probabilidad Logarítmica (Máxima) de la Secuencia Q*: {log_P_star:.4f}"
-            
-            return output
-
-        # FUNCIÓN PRINCIPAL DE CÁLCULO (vinculada al botón)
-        def perform_calculation(event):
-            output_element = Element('output_result')
-            # CORRECCIÓN: Dar feedback inmediato
-            output_element.write("Iniciando cálculo...", append=False) 
-
-            model = Element('model_select').value
-            
-            if not model:
-                output_element.write("ERROR: Por favor, seleccione un modelo de cálculo.", append=False)
-                return
-
-            try:
-                N = int(Element('matrix_size').value) # Número de Estados
-            except ValueError:
-                output_element.write("ERROR: El tamaño de la Matriz (N) no es un número válido.", append=False)
-                return
-
-            # 1. Leer Matriz de Transición (A)
-            A = read_matrix_from_html('A', N, N)
-            if isinstance(A, str): # Si la función de lectura devolvió un error (string)
-                output_element.write(A, append=False)
-                return
-
-            # 2. Ejecutar la lógica específica del modelo
-            if model == 'markov':
-                # Validación crucial: Suma de filas debe ser 1.0 (para matrices estocásticas)
-                row_sums = A.sum(axis=1)
-                # np.allclose es mejor que == para floats
-                if not np.allclose(row_sums, 1.0, atol=1e-3): 
-                     output_element.write(
-                        f"ERROR: La suma de las filas de la Matriz de Transición (A) debe ser 1.0. Sumas encontradas (deberían ser 1.0): {np.round(row_sums, 4)}", 
-                        append=False
-                     )
-                     return
-                     
-                result = calculate_markov(A, N)
-                output_element.write(result, append=False)
-            
-            elif model == 'viterbi':
-                try:
-                    M = int(Element('observation_size').value) # Número de Observaciones
-                except ValueError:
-                    output_element.write("ERROR: El tamaño de la Matriz de Emisión (M) no es un número válido.", append=False)
-                    return
-
-                # 2.1 Leer Matriz de Emisión (B)
-                B = read_matrix_from_html('B', N, M)
-                if isinstance(B, str):
-                    output_element.write(B, append=False)
-                    return
-                
-                # 2.2 Leer Vector Inicial (Pi)
-                Pi = read_vector_from_html('Pi', N)
-                if isinstance(Pi, str):
-                    output_element.write(Pi, append=False)
-                    return
-                
-                # 2.3 Leer Secuencia de Observaciones
-                obs_str = Element('observations').value
-                try:
-                    # Convertir la cadena de observaciones a una lista de enteros
-                    Observations = [int(x.strip()) for x in obs_str.split(',') if x.strip()]
-                    if not Observations:
-                         output_element.write("ERROR: La secuencia de observaciones está vacía.", append=False)
-                         return
-                except ValueError:
-                    output_element.write("ERROR: La secuencia de observaciones debe ser una lista de números enteros separados por comas (ej: 0,1,0,2).", append=False)
-                    return
-
-                # Validación de A (Transición)
-                if not np.allclose(A.sum(axis=1), 1.0, atol=1e-3):
-                    output_element.write("ERROR: La suma de las filas de la Matriz de Transición (A) debe ser 1.0.", append=False)
-                    return
-                    
-                # Validación de B (Emisión)
-                if not np.allclose(B.sum(axis=1), 1.0, atol=1e-3):
-                    output_element.write("ERROR: La suma de las filas de la Matriz de Emisión (B) debe ser 1.0.", append=False)
-                    return
-                
-                # Validación de Pi (Inicial)
-                if not np.allclose(Pi.sum(), 1.0, atol=1e-3):
-                    output_element.write("ERROR: La suma del Vector Inicial (π) debe ser 1.0.", append=False)
-                    return
-
-                result = calculate_viterbi(A, B, Pi, Observations)
-                output_element.write(result, append=False)
-                
-            else:
-                 output_element.write("Modelo no implementado o no reconocido.", append=False)
-
-    </py-script>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
