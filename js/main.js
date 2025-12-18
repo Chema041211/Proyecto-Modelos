@@ -38,6 +38,17 @@ async function performCalculation() {
         // Divide por comas y quita espacios
         const customLabels = labelsInput ? labelsInput.split(',').map(s => s.trim()) : [];
 
+        if (model === 'bayesian') {
+            const method = document.getElementById('rb_method').value;
+            const query = document.getElementById('rb_query').value;
+            const evidence = getSelectedEvidence();
+            
+            output.textContent = (method === 've') 
+                ? runVariableElimination(query, evidence) 
+                : runEnumeration(query, evidence);
+            return;
+        }
+
         if (model === 'markov') {
             const A = parseMatrixFromText('text_matrix_a', true); // true = validación 5x5 a 15x15
             const N = A.size()[0];
@@ -54,37 +65,44 @@ async function performCalculation() {
             const B = parseMatrixFromText('text_matrix_b', false);
             const Pi = m.squeeze(parseMatrixFromText('text_vector_pi', false));
             
-            // 2. PROCESAR OBSERVACIONES INTELIGENTE
             const obsText = document.getElementById('observations').value.trim();
             if(!obsText) throw new Error("Debes ingresar observaciones.");
+            const rawObs = obsText.split(',').map(s => s.trim());
             
-            const rawObs = obsText.split(',').map(s => s.trim().toLowerCase());
-            
-            // Mapeo: Intentamos buscar en SYMPTOM_MAP (utils.js) o usar índices directos
+            // Mapeo de observaciones a índices
             const obsIdx = rawObs.map(obs => {
-                // Opción A: Es un número (índice de columna)
                 if(!isNaN(obs) && obs !== "") return parseInt(obs);
-                
-                // Opción B: Es texto, buscamos en el mapa por defecto (compatible con ejemplos médicos)
-                // Normalizamos (quitar acentos) para buscar en el mapa
-                const normalized = obs.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                if (typeof SYMPTOM_MAP !== 'undefined' && SYMPTOM_MAP[normalized] !== undefined) {
-                    return SYMPTOM_MAP[normalized];
-                }
-                
-                throw new Error(`Observación '${obs}' no reconocida. Usa los números de columna (0, 1...) si usas síntomas propios.`);
+                const normalized = obs.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                if (SYMPTOM_MAP[normalized] !== undefined) return SYMPTOM_MAP[normalized];
+                throw new Error(`Observación '${obs}' no reconocida.`);
             });
 
-            // Cálculos HMM (funciones en hmm.js)
-            const { P_O, alpha } = calculateForward(A, B, Pi, obsIdx);
-            const beta = calculateBackward(A, B, obsIdx);
-            const gamma = calculateForwardBackward(alpha, beta);
-            const viterbi = calculateViterbi(A, B, Pi, obsIdx);
+            // EJECUCIÓN
+            const { gamma } = calculateForwardBackwardScaled(A, B, Pi, obsIdx);
+            const pathViterbi = calculateViterbiManual(A, B, Pi, obsIdx);
 
-            let res = `--- RESULTADOS HMM ---\nProbabilidad de la Observación: ${P_O.toExponential(4)}\n\n${viterbi}\n\nProbabilidades Suavizadas (Forward-Backward):\n`;
-            gamma.forEach((row, t) => res += `t=${t}: [${row.map(n=>n.toFixed(3)).join(' | ')}]\n`);
-            output.textContent = res;
+            // FORMATO DE SALIDA (ESTILO PYTHON)
+            const labels = customLabels.length > 0 ? customLabels : Array.from({length: A.size()[0]}, (_,i)=>`E${i}`);
             
+            let res = "ALGORITMO FORWARD-BACKWARD - PROBABILIDADES SUAVIZADAS\n";
+            res += "=".repeat(60) + "\n";
+            res += "Día | " + labels.map(l => l.padEnd(10)).join(" | ") + "\n";
+            res += "-".repeat(60) + "\n";
+
+            gamma.forEach((row, t) => {
+                res += `${(t+1).toString().padStart(3)} | ` + row.map(n => n.toFixed(4).padEnd(10)).join(" | ") + "\n";
+            });
+
+            res += "\n" + "=".repeat(60) + "\n";
+            res += "ALGORITMO DE VITERBI - SECUENCIA MÁS PROBABLE\n";
+            res += "=".repeat(60) + "\n";
+            res += `Estados decodificados (índices): ${JSON.stringify(pathViterbi)}\n\n`;
+            res += "Día | Estado Viterbi\n" + "-".repeat(25) + "\n";
+            pathViterbi.forEach((st, i) => {
+                res += `${(i+1).toString().padStart(3)} | ${labels[st] || 'E'+st}\n`;
+            });
+
+            output.textContent = res;
             await drawStateGraph(A, 'markov-graph', customLabels);
         } 
         else if (model === 'bayesian') {
@@ -94,7 +112,7 @@ async function performCalculation() {
         }
 
     } catch (e) {
-        output.textContent = `❌ ERROR: ${e.message}`;
+        output.textContent = `ERROR: ${e.message}`;
         output.classList.add("text-danger");
         console.error(e);
     }
@@ -102,37 +120,26 @@ async function performCalculation() {
 
 // Funciones Auxiliares para Bayes (Interfaz)
 function addEvidenceRow() {
-    if (!CURRENT_BN) return alert("Primero carga una Red Bayesiana válida.");
+    if (!CURRENT_BN) return alert("Carga la red primero");
     const container = document.getElementById('evidence-container');
-    const rowId = 'row-' + Date.now();
+    const id = 'row-' + Date.now();
     
-    // Crear select de Nodos
     let options = CURRENT_BN.nodes.map(n => `<option value="${n}">${n}</option>`).join('');
-    
+
     const html = `
-    <div class="row g-2 mb-2 align-items-center" id="${rowId}">
-        <div class="col-5">
-            <select class="form-select form-select-sm evidence-node">${options}</select>
-        </div>
-        <div class="col-5">
-            <select class="form-select form-select-sm evidence-val">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-        </div>
-        <div class="col-2">
-            <button class="btn btn-danger btn-sm" onclick="document.getElementById('${rowId}').remove()">X</button>
-        </div>
-    </div>`;
-    
+        <div class="row g-2 mb-2 align-items-center" id="${id}">
+            <div class="col-5"><select class="form-select ev-node shadow-sm">${options}</select></div>
+            <div class="col-5"><select class="form-select ev-val shadow-sm"><option value="true">True</option><option value="false">False</option></select></div>
+            <div class="col-2"><button class="btn btn-danger btn-sm w-100" onclick="document.getElementById('${id}').remove()">✖</button></div>
+        </div>`;
     container.insertAdjacentHTML('beforeend', html);
 }
 
 function getSelectedEvidence() {
     const evidence = {};
     document.querySelectorAll('#evidence-container .row').forEach(row => {
-        const node = row.querySelector('.evidence-node').value;
-        const val = row.querySelector('.evidence-val').value === 'true';
+        const node = row.querySelector('.ev-node').value;
+        const val = row.querySelector('.ev-val').value === 'true';
         evidence[node] = val;
     });
     return evidence;
