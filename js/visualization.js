@@ -3,46 +3,56 @@
    ========================================= */
 
 /**
- * REQUISITO 7 y 11: Visualización de Grafos de Estado (Markov/HMM)
- * @param {Matrix} A_matrix - Matriz de transición
- * @param {string} containerId - ID del div donde se dibujará
+ * Visualización de Grafos de Estado (Markov/HMM)
+ * Soporta nombres personalizados para los nodos.
  */
-async function drawStateGraph(A_matrix, containerId) {
+async function drawStateGraph(A_matrix, containerId, customLabels = []) {
     const container = document.getElementById(containerId);
     if (!container) return;
-    container.innerHTML = ''; // Limpiar previo
+    container.innerHTML = 'Cargando grafo...';
 
     try {
         const A = A_matrix.toArray();
         const N = A.length;
         
+        // Definición inicial de Mermaid
         let graphDefinition = 'graph LR\n'; 
-        graphDefinition += 'classDef estado fill:#2b7ce3,stroke:#1a5cb8,color:white;\n';
+        graphDefinition += 'classDef estado fill:#2b7ce3,stroke:#1a5cb8,color:white,stroke-width:2px;\n';
 
         for (let i = 0; i < N; i++) {
-            // Usar etiquetas de síntomas si existen, si no, usar E0, E1...
-            const label = (SYMPTOM_LABELS && SYMPTOM_LABELS[i]) ? SYMPTOM_LABELS[i] : `E${i}`;
-            graphDefinition += `${i}((${label})):::estado\n`;
+            // Lógica para el nombre: ¿Usamos el personalizado o el default "Ei"?
+            let label = `E${i}`;
+            if (customLabels.length > i && customLabels[i].trim() !== "") {
+                label = customLabels[i].trim();
+            } else if (typeof SYMPTOM_LABELS !== 'undefined' && SYMPTOM_LABELS[i]) {
+                // Fallback para HMM si no hay customLabels pero existen los de síntomas
+                label = SYMPTOM_LABELS[i]; 
+            }
+
+            // Sanitizar label para Mermaid (quitar comillas o caracteres raros)
+            const safeLabel = label.replace(/["()]/g, '');
+
+            graphDefinition += `${i}(("${safeLabel}")):::estado\n`;
             
             for (let j = 0; j < N; j++) {
                 const prob = A[i][j];
-                // Solo dibujar flechas con probabilidad significativa
+                // Solo dibujar flechas relevantes (> 1%)
                 if (prob > 0.01) {
-                    graphDefinition += `${i} -- "${prob.toFixed(2)}" --> ${j}\n`;
+                    graphDefinition += `${i} -- "${prob}" --> ${j}\n`;
                 }
             }
         }
 
-        const { svg } = await mermaid.render('graph-' + containerId, graphDefinition);
+        const { svg } = await mermaid.render('graphDiv' + Date.now(), graphDefinition);
         container.innerHTML = svg;
     } catch (e) {
-        console.error("Error Mermaid (Estado):", e);
+        console.error("Error Mermaid:", e);
+        container.innerHTML = `<div class="text-danger">Error al dibujar grafo: ${e.message}</div>`;
     }
 }
 
 /**
- * REQUISITO 3: Visualización de la Red Bayesiana (DAG)
- * @param {Object} networkData - Objeto con nodes y structure
+ * Visualización de Redes Bayesianas (DAG)
  */
 async function drawBayesianGraph(networkData) {
     const container = document.getElementById('network-visualization');
@@ -52,12 +62,10 @@ async function drawBayesianGraph(networkData) {
         let graphDef = 'graph TD\n'; 
         graphDef += 'classDef variable fill:#ffc107,stroke:#333,color:black;\n';
 
-        // Definir Nodos
         networkData.nodes.forEach(node => {
             graphDef += `${node}[${node}]:::variable\n`;
         });
 
-        // Definir Enlaces (Padres -> Hijos)
         Object.keys(networkData.structure).forEach(child => {
             const parents = networkData.structure[child];
             parents.forEach(parent => {
@@ -69,15 +77,5 @@ async function drawBayesianGraph(networkData) {
         container.innerHTML = svg;
     } catch (e) {
         console.error("Error Mermaid (RB):", e);
-        container.innerHTML = `<div class="alert alert-danger">Error en JSON de la red.</div>`;
-    }
-}
-
-/**
- * Inicializador de la UI Bayesiana
- */
-function setupBayesianNetworkUI() {
-    if (typeof loadBayesianNetworkFromJSON === 'function') {
-        loadBayesianNetworkFromJSON();
     }
 }
