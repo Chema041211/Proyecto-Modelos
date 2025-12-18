@@ -6,6 +6,13 @@ let CURRENT_BN = null;
 
 function loadBayesianNetworkFromJSON() {
     const jsonText = document.getElementById('bayesian_json').value;
+    
+    // VALIDACIÓN: Si está vacío, no hacer nada y salir de la función
+    if (jsonText === "") {
+        return; 
+    }
+    
+    
     try {
         CURRENT_BN = JSON.parse(jsonText);
         const qSelect = document.getElementById('rb_query');
